@@ -52,36 +52,36 @@ def apply_transformations(img, transformations):
         angle = int(transformations['rotate'])
         if angle in [90, 180, 270]:
             img = img.rotate(-angle, expand=True)
-    
+
     if transformations.get('flip_horizontal'):
         img = img.transpose(Image.FLIP_LEFT_RIGHT)
-    
+
     if transformations.get('flip_vertical'):
         img = img.transpose(Image.FLIP_TOP_BOTTOM)
-    
+
     return img
 
 def add_watermark(img, watermark_text, position='bottom-right', opacity=128):
     """Add text watermark to image"""
     if not watermark_text:
         return img
-    
+
     # Create a transparent overlay
     overlay = Image.new('RGBA', img.size, (255, 255, 255, 0))
     draw = ImageDraw.Draw(overlay)
-    
+
     # Try to use a nice font, fallback to default
     try:
         font_size = max(20, min(img.width, img.height) // 30)
         font = ImageFont.load_default()
     except:
         font = ImageFont.load_default()
-    
+
     # Get text size
     bbox = draw.textbbox((0, 0), watermark_text, font=font)
     text_width = bbox[2] - bbox[0]
     text_height = bbox[3] - bbox[1]
-    
+
     # Calculate position
     margin = 20
     if position == 'bottom-right':
@@ -99,14 +99,14 @@ def add_watermark(img, watermark_text, position='bottom-right', opacity=128):
     else:  # center
         x = (img.width - text_width) // 2
         y = (img.height - text_height) // 2
-    
+
     # Draw text with opacity
     draw.text((x, y), watermark_text, font=font, fill=(255, 255, 255, opacity))
-    
+
     # Combine with original image
     if img.mode != 'RGBA':
         img = img.convert('RGBA')
-    
+
     return Image.alpha_composite(img, overlay)
 
 @app.route('/api/analyze-image', methods=['POST'])
@@ -114,10 +114,10 @@ def analyze_image():
     """AI-powered image analysis using OpenAI"""
     if not openai_available:
         return jsonify({"error": "AI analysis not available. Please configure OpenAI API key."}), 503
-    
+
     if "file" not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
-    
+
     file = request.files["file"]
     try:
         # Convert image to base64
@@ -125,7 +125,7 @@ def analyze_image():
         buffered = io.BytesIO()
         img.save(buffered, format="JPEG")
         img_base64 = base64.b64encode(buffered.getvalue()).decode()
-        
+
         # Analyze with OpenAI Vision  
         # the newest OpenAI model is "gpt-4o" for vision tasks
         response = openai_client.chat.completions.create(
@@ -147,18 +147,20 @@ def analyze_image():
             ],
             max_tokens=1000
         )
-        
+
         content = response.choices[0].message.content
         try:
             analysis = json.loads(content)
         except:
             # If not valid JSON, return as text
             analysis = content
-        
+
         return jsonify({"success": True, "analysis": analysis})
-        
+
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"Analysis error: {e}")  # Log for debugging
+        error_message = str(e) if str(e) else "Unknown analysis error"
+        return jsonify({"error": error_message}), 500
 
 @app.route("/api/convert", methods=["POST"])
 def convert():
@@ -172,19 +174,19 @@ def convert():
 
     mode = (request.form.get("mode") or "none").lower()
     quality = request.form.get("quality", "85")
-    
+
     # New transformation options
     transformations = {
         'rotate': request.form.get('rotate', '0'),
         'flip_horizontal': request.form.get('flip_horizontal') == 'true',
         'flip_vertical': request.form.get('flip_vertical') == 'true'
     }
-    
+
     # Watermark options
     watermark_text = request.form.get('watermark_text', '')
     watermark_position = request.form.get('watermark_position', 'bottom-right')
     watermark_opacity = int(request.form.get('watermark_opacity', '128'))
-    
+
     # Aspect ratio preservation
     preserve_aspect = request.form.get('preserve_aspect') == 'true'
 
@@ -193,7 +195,7 @@ def convert():
         for file in files:
             img = Image.open(file.stream)
             img = ImageOps.exif_transpose(img)
-            
+
             # Apply transformations (rotate, flip)
             img = apply_transformations(img, transformations)
 
@@ -212,7 +214,7 @@ def convert():
                         # Calculate the aspect ratio preserving dimensions
                         img_ratio = img.width / img.height
                         target_ratio = w / h
-                        
+
                         if img_ratio > target_ratio:
                             # Image is wider, fit to width
                             new_w = w
@@ -221,11 +223,11 @@ def convert():
                             # Image is taller, fit to height
                             new_h = h
                             new_w = int(h * img_ratio)
-                        
+
                         img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
                     else:
                         img = img.resize((w, h), Image.Resampling.LANCZOS)
-            
+
             # Add watermark if specified
             if watermark_text:
                 img = add_watermark(img, watermark_text, watermark_position, watermark_opacity)
@@ -259,7 +261,9 @@ def convert():
             return send_file(zip_buffer, as_attachment=True, download_name="images.zip")
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"Conversion error: {e}")  # Log for debugging
+        error_message = str(e) if str(e) else "Unknown conversion error"
+        return jsonify({"error": error_message}), 500
 
 @app.route('/api/preview', methods=['POST'])
 def preview_image():
@@ -268,46 +272,48 @@ def preview_image():
         return jsonify({"error": "No file uploaded"}), 400
 
     file = request.files["file"]
-    
+
     # Get transformation parameters
     transformations = {
         'rotate': request.form.get('rotate', '0'),
         'flip_horizontal': request.form.get('flip_horizontal') == 'true',
         'flip_vertical': request.form.get('flip_vertical') == 'true'
     }
-    
+
     watermark_text = request.form.get('watermark_text', '')
     watermark_position = request.form.get('watermark_position', 'bottom-right')
     watermark_opacity = int(request.form.get('watermark_opacity', '128'))
-    
+
     try:
         img = Image.open(file.stream)
         img = ImageOps.exif_transpose(img)
-        
+
         # Apply transformations
         img = apply_transformations(img, transformations)
-        
+
         # Add watermark if specified
         if watermark_text:
             img = add_watermark(img, watermark_text, watermark_position, watermark_opacity)
-        
+
         # Create thumbnail for preview (max 400px)
         img.thumbnail((400, 400), Image.Resampling.LANCZOS)
-        
+
         # Convert to base64 for preview
         buf = io.BytesIO()
         img.save(buf, format='PNG')
         buf.seek(0)
         img_base64 = base64.b64encode(buf.getvalue()).decode()
-        
+
         return jsonify({
             "success": True, 
             "preview": f"data:image/png;base64,{img_base64}",
             "dimensions": {"width": img.width, "height": img.height}
         })
-        
+
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"Preview error: {e}")  # Log for debugging
+        error_message = str(e) if str(e) else "Unknown preview error"
+        return jsonify({"error": error_message}), 500
 
 if __name__ == "__main__":
     debug_mode = os.environ.get("FLASK_DEBUG", "False").lower() == "true"
